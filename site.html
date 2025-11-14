@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Controle de Potência - ESP32</title>
+<style>
+body { font-family: Arial; text-align:center; background:#eef2f5; }
+.card { background:#fff; margin:20px auto; width:320px; padding:20px; border-radius:10px;
+        box-shadow:0 4px 10px rgba(0,0,0,0.1); }
+button { padding:8px 14px; margin:8px; border:none; border-radius:6px; background:#007bff; color:#fff; font-size:15px; cursor:pointer; }
+button:hover { background:#005fc7; }
+input[type=number]{ width:70px; text-align:center; }
+.value { font-size:22px; margin:6px 0; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h2>Controle de Potência</h2>
+    <div class="value">Tensão: <span id="tensao">--</span> V</div>
+    <div class="value">Corrente: <span id="corrente">--</span> A</div>
+    <div class="value">Ângulo: <span id="angulo">--</span>°</div>
+    <div class="value">Sistema: <span id="estado">--</span></div>
+    <div style="margin-top:10px;">
+      <label>Novo Ângulo:</label>
+      <input id="novoAngulo" type="number" min="0" max="180" step="1" value="0">
+      <button onclick="enviarAngulo()">Enviar</button>
+    </div>
+    <div style="margin-top:10px;">
+      <button onclick="alternar()">Ligar / Desligar</button>
+      <button onclick="atualizar()">Atualizar</button>
+    </div>
+  </div>
+<script>
+function atualizar(){
+  fetch('/estado').then(r=>r.json()).then(d=>{
+    document.getElementById('tensao').innerText = d.tensao.toFixed(1);
+    document.getElementById('corrente').innerText = d.corrente.toFixed(3);
+    document.getElementById('angulo').innerText = d.angulo;
+    document.getElementById('estado').innerText = d.ligado ? 'Ligado' : 'Desligado';
+  });
+}
+function alternar(){
+  fetch('/toggle').then(_=>atualizar());
+}
+function enviarAngulo(){
+  const val = document.getElementById('novoAngulo').value;
+  fetch('/set?angulo='+val).then(_=>atualizar());
+}
+setInterval(atualizar, 2000);
+window.onload = atualizar;
+</script>
+</body>
+</html>

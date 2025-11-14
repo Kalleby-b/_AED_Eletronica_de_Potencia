@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <title>Sistema de Controle Hidráulico</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root{
+      --blue: #2196F3;
+      --panel-bg: rgba(255,255,255,0.95);
+    }
+    html,body{
+      height:100%;
+      margin:0;
+      font-family: 'Segoe UI', Roboto, Arial, sans-serif;
+      background: #f0f4f7;
+      -webkit-font-smoothing:antialiased;
+      -moz-osx-font-smoothing:grayscale;
+    }
+
+    .main-container{
+      position:relative;
+      width: 900px;
+      max-width: 95vw;
+      height: 650px;
+      margin: 32px auto;
+      display:flex;
+      align-items:flex-start;
+      justify-content:center;
+      gap:20px;
+    }
+
+    /* area visual da planta (placeholder) */
+    .system-svg{
+      flex:1 1 60%;
+      min-height: 460px;
+      border-radius:12px;
+      background: linear-gradient(180deg, #ffffff, #eef3f7);
+      box-shadow: 0 10px 30px rgba(20,30,40,0.06);
+      padding:20px;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      color:#6b7785;
+      font-size:14px;
+      text-align:center;
+    }
+
+    .control-panel{
+      width: 260px;
+      background: var(--panel-bg);
+      padding:20px;
+      border-radius:12px;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.12);
+      backdrop-filter: blur(5px);
+      animation: panelEntry .6s ease-out;
+      align-self:flex-start;
+    }
+
+    @keyframes panelEntry{
+      from{ transform: translateY(18px); opacity:0 }
+      to{ transform: translateY(0); opacity:1 }
+    }
+
+    .control-panel h3{
+      margin:0 0 12px 0;
+      color:var(--blue);
+      font-size:18px;
+      display:flex;
+      align-items:center;
+      gap:8px;
+    }
+
+    .status-led{
+      width:12px;
+      height:12px;
+      border-radius:50%;
+      display:inline-block;
+      background:#bbb;
+      box-shadow: 0 0 0 0 rgba(33,150,243,0.5);
+    }
+
+    .dac-slider{
+      width:100%;
+      margin:14px 0;
+      -webkit-appearance:none;
+      height:8px;
+      border-radius:6px;
+      background:#e0e5ec;
+      outline:none;
+      transition:opacity .15s;
+    }
+    .dac-slider::-webkit-slider-thumb{
+      -webkit-appearance:none;
+      width:20px;
+      height:20px;
+      border-radius:50%;
+      background:var(--blue);
+      cursor:pointer;
+      transition: transform .12s;
+      box-shadow: 0 2px 6px rgba(33,150,243,0.2);
+    }
+
+    .value-display{ text-align:center; margin:10px 0; color:#2c3e50; }
+    .value-display .label{ font-size:0.9rem; color:#4b5866; }
+    .value-number{ display:block; font-size:1.25rem; font-weight:600; color:var(--blue); margin-top:6px; }
+
+    /* responsive tweaks */
+    @media (max-width:720px){
+      .main-container{ flex-direction:column; height:auto; padding-bottom:28px; }
+      .control-panel{ width:92%; margin:0 auto 10px auto; }
+      .system-svg{ width:92%; min-height:280px; margin:0 auto; }
+    }
+  </style>
+</head>
+<body>
+  <div class="main-container">
+    <div class="system-svg" id="plantArea">
+      <!-- Aqui você pode colocar uma imagem SVG da planta ou um diagrama.
+           Por enquanto é um placeholder visual. -->
+      <div>
+        <strong>Visualização da Planta</strong>
+        <div style="margin-top:12px; font-size:13px; max-width:320px;">
+          Placeholder: troque por sua imagem SVG/PNG ou deixe como está para testar a interface.
+        </div>
+      </div>
+    </div>
+
+    <div class="control-panel" role="region" aria-label="Painel de Controle DAC">
+      <h3>
+        Controle DAC
+        <span class="status-led" id="statusLed" title="Status de comunicação"></span>
+      </h3>
+
+      <input id="dacSlider" class="dac-slider" type="range" min="0" max="255" value="0" oninput="updateDAC(this.value)">
+
+      <div class="value-display">
+        <div class="label">Frequência (Hz)</div>
+        <span class="value-number" id="freq">0.0</span>
+      </div>
+
+      <div class="value-display">
+        <div class="label">Vazão estimada (L/m)</div>
+        <span class="value-number" id="vazao">0.0</span>
+      </div>
+
+      <div class="value-display">
+        <div class="label">Vazão real (sensor)</div>
+        <span class="value-number" id="vazao_adc_global">0.0</span>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // comportamento da interface
+    const statusLed = document.getElementById('statusLed');
+    const freqEl = document.getElementById('freq');
+    const vazaoEl = document.getElementById('vazao');
+    const vazaoRealEl = document.getElementById('vazao_adc_global');
+
+    // atualiza as leituras locais (baseadas no slider)
+    function updateLocalDisplays(value){
+      const freq = (value / 255) * 60;
+      const vazao = (value / 255) * 38;
+      freqEl.textContent = freq.toFixed(1);
+      vazaoEl.textContent = vazao.toFixed(1);
+    }
+
+    let updateTimeout = null;
+
+    // função chamada ao mover o slider
+    function updateDAC(value){
+      // feedback visual imediato
+      statusLed.style.background = '#ff9800'; // laranja -> enviando
+      updateLocalDisplays(value);
+
+      // debounce para evitar muitas requisições
+      clearTimeout(updateTimeout);
+      updateTimeout = setTimeout(() => {
+        // tenta chamar o endpoint /update?dac=VAL (esperado no ESP32)
+        const url = "/update?dac=" + encodeURIComponent(value);
+        fetch(url, { method: 'GET' })
+          .then(r => {
+            if (!r.ok) throw new Error('Resposta não OK');
+            return r.json();
+          })
+          .then(json => {
+            // atualiza com dados do servidor (se existir)
+            if (json.freq !== undefined) freqEl.textContent = Number(json.freq).toFixed(1);
+            if (json.vazao !== undefined) vazaoEl.textContent = Number(json.vazao).toFixed(1);
+            statusLed.style.background = '#4CAF50'; // verde -> OK
+          })
+          .catch(err => {
+            // se falhar (normal localmente), permanece com o valor estimado e mostra erro visual
+            console.warn('Erro ao enviar update (esperado se não houver servidor):', err);
+            statusLed.style.background = '#f44336'; // vermelho -> erro
+            // após 1s volta para inativo
+            setTimeout(()=> statusLed.style.background = '#bbb', 1200);
+          });
+      }, 150);
+    }
+
+    // Função que tenta obter a vazão real do endpoint /vazao2 (ESP32)
+    function atualizarVazaoReal(){
+      fetch('/vazao2')
+        .then(r => {
+          if (!r.ok) throw new Error('Resposta não OK');
+          return r.json();
+        })
+        .then(json => {
+          if (json.vazao_real !== undefined){
+            vazaoRealEl.textContent = Number(json.vazao_real).toFixed(1);
+          } else {
+            console.warn("Resposta /vazao2 sem campo vazao_real");
+          }
+        })
+        .catch(err => {
+          // sem servidor, apenas ignora (comente se quiser log)
+          // console.debug('vazao2 not available (normal sem ESP32):', err);
+        });
+    }
+
+    // tenta atualizar a cada 1s
+    setInterval(atualizarVazaoReal, 1000);
+
+    // inicializa displays com valor 0
+    updateLocalDisplays(document.getElementById('dacSlider').value);
+  </script>
+</body>
+</html>
